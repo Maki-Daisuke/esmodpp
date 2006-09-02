@@ -1,4 +1,4 @@
-our $VERSION = 0.0.0;
+our $VERSION = 0.1.1;
 
 use Cwd qw/ realpath /;
 use File::Spec::Functions qw/ catfile file_name_is_absolute /;
@@ -8,6 +8,7 @@ unless ( @ARGV ) {
     print "Input JS files.\n";
     exit;
 }
+@ARGV = map{ glob $_ } @ARGV;
 
 
 sub error {
