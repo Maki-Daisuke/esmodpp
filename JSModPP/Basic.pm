@@ -1,5 +1,5 @@
 package JSModPP::Basic;
-our $VERSION = 0.1.3;
+our $VERSION = 0.2.0;
 
 use JSModPP;
 use Carp;
@@ -64,7 +64,7 @@ sub new {
     $self->{_buffer}    = "var NAMESPACE = 'window';\n";
     $self->{_jsmodpp}   = undef;
     $self->{_target}    = "window";
-    $self->{_namespace} = [];
+    $self->{_namespace} = [["window"]];
     $self->{_with}      = [];
     $self->{_export}    = [];
     $self->{_shared}    = [];
