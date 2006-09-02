@@ -1,5 +1,5 @@
 package JSModPP::Basic;
-our $VERSION = 0.1.0;
+our $VERSION = 0.1.1;
 
 use JSModPP;
 use Carp;
@@ -99,7 +99,7 @@ sub result {
                 return function () {
                     @{[ $self->{_buffer} ]}
                     return {
-                        @{[ join ", ", map{"_$_->{name}: $_->{name}"} @{$self->{_export}} ]}
+                        @{[ join ", ", map{"\$$_->{name}: $_->{name}"} @{$self->{_export}} ]}
                     };
                 }();
             };
@@ -107,7 +107,7 @@ sub result {
     $buf .= "}() ) {\n";
         foreach ( @{$self->{_export}} ) {
             my ($ns, $name) = ($_->{namespace}, $_->{name});
-            $buf .= "window.$ns.$name = _$name;\n";
+            $buf .= "$ns.$name = \$$name;\n";
         }
     $buf .= "}\n";
     $buf;
