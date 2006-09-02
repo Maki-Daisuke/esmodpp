@@ -1,5 +1,5 @@
 package JSModPP::Basic;
-our $VERSION = 0.0.1;
+our $VERSION = 0.1.0;
 
 use JSModPP;
 use Carp;
@@ -56,13 +56,12 @@ use fields qw{
     _with
     _export
     _shared
-    _require
 };
 
 sub new {
     my $class = shift;
     my JSModPP::Basic $self = $class->SUPER::new;
-    $self->{_buffer}    = "";
+    $self->{_buffer}    = "var NAMESPACE = 'window';\n";
     $self->{_jsmodpp}   = undef;
     $self->{_target}    = ["window"];
     $self->{_namespace} = [];
@@ -75,11 +74,6 @@ sub new {
 sub write {
     (my JSModPP::Basic $self, my @args) = @_;
     $self->{_buffer} .= join "", @args;
-}
-
-sub requires {
-    my JSModPP::Basic $self = shift;
-    @{$self->{_require}};
 }
 
 sub result {
@@ -140,7 +134,9 @@ sub text {
     croak '@use-namespace takes just one argument.'  unless @args == 1;
     my $ns = parse_namespace $args[0];
     push @{$self->{_namespace}}, $ns;
-    $self->{_target} = join ".", @$ns;
+    $ns = join ".", @$ns;
+    $self->{_target} = $ns;
+    $self->write("NAMESPACE = '$ns';\n");
 };
 
 *{__PACKAGE__.'::@export'} = sub {
@@ -183,17 +179,18 @@ sub text {
     $ns = join ".", @$ns;
     push @{$self->{_with}}, $ns;
     $self->{_target} = $ns;
+    $self->write("NAMESPACE = '$ns';\n");
 };
 
 *{__PACKAGE__.'::@include'} = sub {
-    my $self = shift;
+    my JSModPP::Basic $self = shift;
     my @args = @{shift()};
     croak '@include requires one or more arguments.'  unless @args;
     foreach my $file ( @args ) {
         local *FILE;
         OPEN: unless ( open FILE, $file ) {
-            not file_name_is_absolute $file and do{
-                foreach ( split /;/, $ENV{JSMODPP_INCLUDE} ) {
+            unless ( file_name_is_absolute $file ) {
+                foreach ( split /;/, $ENV{JS_INCLUDE} ) {
                     open(FILE, catfile $_, $file) and last OPEN;
                 }
             };
@@ -203,13 +200,6 @@ sub text {
         close FILE;
         $self->write($text);
     }
-};
-
-*{__PACKAGE__.'::@require'} = sub {
-    my $self = shift;
-    my @args = @{shift()};
-    croak '@require requires one or more arguments.'  unless @args;
-    push @{$self->{_require}}, @args;
 };
 
 
