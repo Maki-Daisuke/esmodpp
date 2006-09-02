@@ -1,5 +1,5 @@
 package JSModPP::Basic;
-our $VERSION = 0.1.2;
+our $VERSION = 0.1.3;
 
 use JSModPP;
 use Carp;
@@ -82,7 +82,15 @@ sub result {
     my $buf = "";
     foreach ( @{$self->{_namespace}} ) {
         my @names = @$_;
-        my $name = "window";
+        my $name = shift @names;
+        $buf .= qq{
+            try {
+                if ( !$name || (typeof $name != 'object' && typeof $name != 'function') ) $name = new Object();
+            }
+            catch ( e ) {
+                $name = new Object();
+            }
+        };
         while ( @names ) {
             $name .= "." . shift @names;
             $buf .= "if ( !$name || (typeof $name != 'object' && typeof $name != 'function') ) $name = new Object();\n";
