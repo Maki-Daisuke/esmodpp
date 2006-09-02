@@ -1,5 +1,5 @@
 //@jsmodpp
-//@namespace myroom
+//@namespace my.room
 
 //@include calendar.js
 
@@ -9,14 +9,20 @@ DEBUG_LEVEL = 0;
 function DEBUG ( /* variable argumets */ ) {
     if ( DEBUG_LEVEL > 0 ) {
         document.write("DEBUG: ");
-        document.write.apply(document, arguments);
+        for ( var i=0;  i < arguments.length;  i++ ) {
+            document.write(arguments[0]);
+        }
+        document.write("<br>\n");
     }
 }
 
 function CHECK ( /* variable argumets */ ) {
-    if ( DEBUG_LEVEL > 10 ) {
+    if ( DEBUG_LEVEL >= 2 ) {
         document.write("CHECK: ");
-        document.write.apply(document, arguments);
+        for ( var i=0;  i < arguments.length;  i++ ) {
+            document.write(arguments[0]);
+        }
+        document.write("<br>\n");
     }
 }
 
