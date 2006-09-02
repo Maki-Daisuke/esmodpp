@@ -1,11 +1,11 @@
-our $VERSION = 0.1.1;
+our $VERSION = $ESModPP::ESCat::VERSION;
 
 use Cwd qw/ realpath /;
 use File::Spec::Functions qw/ catfile file_name_is_absolute /;
-use JSModPP::JSCat;
+use ESModPP::ESCat;
 
 unless ( @ARGV ) {
-    print "Input JS files.\n";
+    print "Input ECMAScript source file(s).\n";
     exit;
 }
 @ARGV = map{ glob $_ } @ARGV;
@@ -23,7 +23,7 @@ sub search ($) {
     return realpath $abspath  if not $@ and -f $abspath;
     # Duplicate application of `realpath' is necessary for Win32 systems.
     unless ( file_name_is_absolute $file ) {
-        foreach ( split /;/, $ENV{JS_LIB} ) {
+        foreach ( split /;/, $ENV{ES_LIB} ) {
             local $@;
             $abspath = eval{ realpath catfile $_, $file };
             return realpath $abspath  if not $@ and -f $abspath;
@@ -44,16 +44,16 @@ while ( @ARGV ) {
     next if $files{$abspath}{code};
 
     open FILE, $abspath  or error "Cannot open `$abspath': Access denied.";
-    my $pp = JSModPP::JSCat->new;
+    my $pp = ESModPP::ESCat->new;
     while ( <FILE> ) {
         local $@;
         eval{ $pp->chunk($_) };
-        error $@=~/(.*?at )/s, "$file line $.." if $@;
+        error $@=~/(.* at )/s, "$file line $.." if $@;
     }
     close FILE;
     $files{$abspath}{code} = $pp->eof;
     
-    foreach ( $pp->require ) {
+    foreach ( keys %{$pp->require} ) {
         my $required = search $_;
         $depend{$abspath, $required} = 1;
         push @ARGV, $required;

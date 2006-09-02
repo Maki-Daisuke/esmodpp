@@ -1,6 +1,6 @@
-//@jsmodpp
+//@esmodpp 0.9.0
 //@namespace my.room
-
+//@version 1.2.3
 //@include calendar.js
 
 //@shared DEBUG_LEVEL

@@ -1,8 +1,18 @@
-package JSModPP;
-our $VERSION = 0.0.1;
+package ESModPP::Parser;
+our $VERSION = 0.9.0;
 
 use utf8;
+use strict;
+no strict 'refs';
+no warnings 'uninitialized';
+
 use Carp;
+
+use Exporter;
+use base qw/Exporter/;
+our @EXPORT_OK   = qw/is_identifier parse_namespace/;
+our %EXPORT_TAGS = (all => \@EXPORT_OK);
+
 
 use fields qw/_warning _buffer _source/;
 
@@ -14,7 +24,7 @@ my $can = sub {
 sub new {
     my $class = shift;
     $class = ref $class || $class;
-    my JSModPP $self = fields::new($class);
+    my ESModPP::Parser $self = fields::new($class);
     $self->{_buffer}  = "";
     $self->{_source}  = "";
     $self->{_warning} = 1;
@@ -22,12 +32,12 @@ sub new {
 }
 
 sub source {
-    my JSModPP $self = shift;
+    my ESModPP::Parser $self = shift;
     $self->{_source};
 }
 
 sub warning {
-    my JSModPP $self = shift;
+    my ESModPP::Parser $self = shift;
     $self->{_warning} = shift  if @_;
     $self->{_warning};
 }
@@ -56,7 +66,7 @@ my $double_quoted = qr{"([^$terminator$white"]*(?:""[^$terminator$white"]*)*)"};
 my $argument      = qr{$literal|$single_quoted|$double_quoted};
 
 sub chunk {
-    (my JSModPP $self, my $chunk) = @_;
+    (my ESModPP::Parser $self, my $chunk) = @_;
     $self->{_source} .= $chunk;
     my @lines = split /$re_terminator/, $chunk, -1;
     return 1  unless @lines;
@@ -83,7 +93,7 @@ sub chunk {
             push @args, "$value$single$double";
         }
         unless ( /\G[$white]*$/gco ) {
-            carp "Warning: `instruction-like' line is ignored (probably, unmatched quotation?): $_"  if $self->{_warning};
+            carp "Warning: an `instruction-like' line is ignored (probably, unmatched quotation?): $_"  if $self->{_warning};
             $self->text([], "$_\n");
             next;
         }
@@ -118,13 +128,55 @@ sub handle {
 sub file {
     my ($class, $file) = @_;
     $class = ref $class || $class;
-    my $self = $class->new;
     local *FILE;
     open FILE, $file  or  return;
+    my $self = $class->new;
     read FILE, my $text, (stat FILE)[7];
     close FILE;
     $self->chunk($text);
     $self->eof;
+}
+
+
+
+my $UnicodeLetter         = '\p{IsLu}\p{IsLl}\p{IsLt}\p{IsLm}\p{IsLo}\p{IsNl}';
+my $UnicodeEscapeSequence = qr{\\u[0-9a-fA-F]{4}};
+my $IdentifierStart       = qr{[\$_$UnicodeLetter]|$UnicodeEscapeSequence};
+my $IdentifierPart        = qr{[\$_$UnicodeLetter\p{IsMn}\p{IsMc}\p{IsNd}\p{IsPc}]|$UnicodeEscapeSequence};
+my $Identifier            = qr{(?>$IdentifierStart$IdentifierPart*)};
+
+my %reserved = map{ $_ => 1 } qw{
+    break     else        new        var
+    case      finally     return     void
+    catch     for         switch     while
+    continue  function    this       with
+    default   if          throw
+    delete    in          try
+    do        instanceof  typeof
+    abstract  enum        int        short
+    boolean   export      interface  static
+    byte      extends     long       super
+    char      final       native     synchronized
+    class     float       package    throws
+    const     goto        private    transient
+    debugger  implements  protected  volatile
+    double    import      public
+};
+
+sub is_identifier ($) {
+    local $_ = shift;
+    /^$Identifier$/o  and  not exists $reserved{$_};
+}
+
+sub parse_namespace ($) {
+    local $_ = shift;
+    my @id;
+    foreach ( split /[$white]*\.[$white]*/o ) {
+        return unless is_identifier $_;
+        push @id, $_;
+    }
+    return unless @id;
+    @id;
 }
 
 

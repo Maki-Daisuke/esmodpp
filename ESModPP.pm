@@ -1,56 +1,25 @@
-package JSModPP::Basic;
-our $VERSION = 0.2.0;
+package ESModPP;
+our $VERSION = 0.9.0;
 
-use JSModPP;
+use strict;
+no strict 'refs';
+no warnings 'uninitialized';
+
+use ESModPP::Parser qw/:all/;
+use Exporter;
 use Carp;
 use File::Spec::Functions qw/catfile file_name_is_absolute/;
 
+use constant DEFAULT_NAMESPACE => "window";
 
-my $UnicodeLetter         = '\p{IsLu}\p{IsLl}\p{IsLt}\p{IsLm}\p{IsLo}\p{IsNl}';
-my $UnicodeEscapeSequence = qr{\\u[0-9a-fA-F]{4}};
-my $IdentifierStart       = qr{[\$_$UnicodeLetter]|$UnicodeEscapeSequence};
-my $IdentifierPart        = qr{[\$_$UnicodeLetter\p{IsMn}\p{IsMc}\p{IsNd}\p{IsPc}]|$UnicodeEscapeSequence};
-my $Identifier            = qr{(?>$IdentifierStart$IdentifierPart*)};
+use base qw/Exporter ESModPP::Parser/;
+our @EXPORT_OK   = qw/version_cmp/;
+our @EXPORT_TAGS = (all => \@EXPORT_OK);
 
-my %reserved = map{ $_ => 1 } qw{
-    break     else        new        var
-    case      finally     return     void
-    catch     for         switch     while
-    continue  function    this       with
-    default   if          throw
-    delete    in          try
-    do        instanceof  typeof
-    abstract  enum        int        short
-    boolean   export      interface  static
-    byte      extends     long       super
-    char      final       native     synchronized
-    class     float       package    throws
-    const     goto        private    transient
-    debugger  implements  protected  volatile
-    double    import      public
-};
-
-sub is_identifier ($) {
-    local $_ = shift;
-    /^$Identifier$/o && not exists $reserved{$_};
-}
-
-sub parse_namespace ($) {
-    local $_ = shift;
-    my @id;
-    foreach ( split /[\t\x{000B}\f \x{00A0}\p{IsZs}]*\.[\t\x{000B}\f \x{00A0}\p{IsZs}]*/ ) {
-        croak "Invalid identifier: `$_'"  unless is_identifier $_;
-        push @id, $_;
-    }
-    croak "Invalid namespace: `$_'" unless @id;
-    \@id;
-}
-
-
-use base "JSModPP";
 use fields qw{
     _buffer
-    _jsmodpp
+    _esmodpp
+    _version
     _target
     _namespace
     _with
@@ -58,30 +27,52 @@ use fields qw{
     _shared
 };
 
-sub new {
+sub new : method {
     my $class = shift;
-    my JSModPP::Basic $self = $class->SUPER::new;
-    $self->{_buffer}    = "var NAMESPACE = 'window';\n";
-    $self->{_jsmodpp}   = undef;
-    $self->{_target}    = "window";
-    $self->{_namespace} = [["window"]];
+    my ESModPP $self = $class->SUPER::new;
+    $self->{_buffer}    = "";
+    $self->{_esmodpp}   = undef;
+    $self->{_version}   = undef;
+    $self->{_target}    = undef;
+    $self->{_namespace} = {};
     $self->{_with}      = [];
     $self->{_export}    = [];
     $self->{_shared}    = [];
     $self;
 }
 
-sub write {
-    (my JSModPP::Basic $self, my @args) = @_;
+my $register_ns = sub : method {
+    my ESModPP $self = shift;
+    my $ns = shift;
+    my @id = parse_namespace $ns  or croak "Invalid namespace: `$ns'";
+    $ns = join ".", @id;
+    ${$self->{_namespace}}{$ns} = 1;
+    $ns;
+};
+
+my $check_target = sub : method {
+    my ESModPP $self = shift;
+    return if $self->{_target};
+    $self->$register_ns(DEFAULT_NAMESPACE);
+    $self->{_target} = DEFAULT_NAMESPACE;
+};
+
+sub version : method {
+    my ESModPP $self = shift;
+    $self->{_version};
+}
+
+sub write : method {
+    (my ESModPP $self, my @args) = @_;
     $self->{_buffer} .= join "", @args;
 }
 
-sub result {
-    my JSModPP::Basic $self = shift;
-    return $self->source  unless $self->{_jsmodpp};
+sub result : method {
+    my ESModPP $self = shift;
+    return $self->source  unless $self->{_esmodpp};
     my $buf = "";
-    foreach ( @{$self->{_namespace}} ) {
-        my @names = @$_;
+    foreach ( keys %{$self->{_namespace}} ) {
+        my @names = parse_namespace $_;
         my $name = shift @names;
         $buf .= qq{
             try {
@@ -105,6 +96,8 @@ sub result {
         }
             $buf .= qq{
                 return function () {
+                    var VERSION @{[ defined $self->{_version} ? "= '$self->{_version}'" : "" ]};
+                    var NAMESPACE;
                     @{[ $self->{_buffer} ]}
                     return {
                         @{[ join ", ", map{"\$$_->{name}: $_->{name}"} @{$self->{_export}} ]}
@@ -122,34 +115,67 @@ sub result {
 }
 
 
-sub text {
-    (my JSModPP::Basic $self, undef, my $text) = @_;
+sub text : method {
+    (my ESModPP $self, undef, my $text) = @_;
     $self->write($text);
 }
 
-*{__PACKAGE__.'::@jsmodpp'} = sub {
-    my JSModPP::Basic $self = shift;
+*{__PACKAGE__.'::@esmodpp'} = sub : method {
+    my ESModPP $self = shift;
     my @args = @{shift()};
     if ( @args ) {
-        croak "Version $args[0] is required, but this is only $VERSION"  if $args[0] > $VERSION;
+        croak '@esmodpp takes at most one argument'                                 unless @args == 1;
+        local $_ = shift @args;
+        croak "Invalid version string: `$_'"                                        unless /^\d+(?>\.\d+)*$/;
+        croak sprintf "ESModPP %s is required, but this is only %vd", $_, $VERSION  if version_cmp($_, $VERSION) > 0;
     }
-    $self->{_jsmodpp} = 1;
+    $self->{_esmodpp} = 1;
 };
 
-*{__PACKAGE__.'::@use-namespace'} = sub {
-    my JSModPP::Basic $self = shift;
+*{__PACKAGE__.'::@version'} = sub : method {
+    my ESModPP $self = shift;
     my @args = @{shift()};
-    croak '@use-namespace takes just one argument.'  unless @args == 1;
-    my $ns = parse_namespace $args[0];
-    push @{$self->{_namespace}}, $ns;
-    $ns = join ".", @$ns;
+    croak '@version takes just one argument'  unless @args == 1;
+    local $_ = shift @args;
+    croak "Invalid version string: `$_'"      unless /^\d+(?>\.\d+)*$/;
+    croak '@version appears more than once'   if defined $self->{_version};
+    $self->{_version} = $_;
+};
+
+*{__PACKAGE__.'::@use-namespace'} = sub : method {
+    my ESModPP $self = shift;
+    my @args = @{shift()};
+    croak '@use-namespace takes just one argument'  unless @args == 1;
+    my $ns = $self->$register_ns($args[0]);
     $self->{_target} = $ns;
     $self->write("NAMESPACE = '$ns';\n");
 };
 
-*{__PACKAGE__.'::@export'} = sub {
-    my JSModPP::Basic $self = shift;
+*{__PACKAGE__.'::@with-namespace'} = sub : method {
+    my ESModPP $self = shift;
     my @args = @{shift()};
+    croak '@with-namespace requires one or more arguments'  unless @args;
+    foreach ( @args ) {
+        my $ns = $self->$register_ns($_);
+        push @{$self->{_with}}, $ns;
+    }
+};
+
+*{__PACKAGE__.'::@namespace'} = sub : method {
+    my ESModPP $self = shift;
+    my @args = @{shift()};
+    my $text = shift;
+    croak '@namespace takes just one argument.'  unless @args == 1;
+    my $use  = '@use-namespace';
+    my $with = '@with-namespace';
+    $self->$use([$args[0]], $text);
+    $self->$with([$args[0]], $text);
+};
+
+*{__PACKAGE__.'::@export'} = sub : method {
+    my ESModPP $self = shift;
+    my @args = @{shift()};
+    $self->$check_target;
     my $target = $self->{_target};
     foreach ( @args ) {
         croak "Invalid identifier: `$_'"  unless is_identifier $_;
@@ -158,9 +184,10 @@ sub text {
     }
 };
 
-*{__PACKAGE__.'::@shared'} = sub {
-    my JSModPP::Basic $self = shift;
+*{__PACKAGE__.'::@shared'} = sub : method {
+    my ESModPP $self = shift;
     my @args = @{shift()};
+    $self->$check_target;
     my $target = $self->{_target};
     foreach ( @args ) {
         croak "Invalid identifier: `$_'"  unless is_identifier $_;
@@ -168,37 +195,15 @@ sub text {
     }
 };
 
-*{__PACKAGE__.'::@with-namespace'} = sub {
-    my JSModPP::Basic $self = shift;
-    my @args = @{shift()};
-    foreach ( @args ) {
-        my $ns = parse_namespace $_;
-        push @{$self->{_namespace}}, $ns;
-        push @{$self->{_with}}, join( ".", @$ns);
-    }
-};
-
-*{__PACKAGE__.'::@namespace'} = sub {
-    my JSModPP::Basic $self = shift;
-    my @args = @{shift()};
-    croak '@namespace takes just one argument.'  unless @args == 1;
-    my $ns = parse_namespace $args[0];
-    push @{$self->{_namespace}}, $ns;
-    $ns = join ".", @$ns;
-    push @{$self->{_with}}, $ns;
-    $self->{_target} = $ns;
-    $self->write("NAMESPACE = '$ns';\n");
-};
-
-*{__PACKAGE__.'::@include'} = sub {
-    my JSModPP::Basic $self = shift;
+*{__PACKAGE__.'::@include'} = sub : method {
+    my ESModPP $self = shift;
     my @args = @{shift()};
     croak '@include requires one or more arguments.'  unless @args;
     foreach my $file ( @args ) {
         local *FILE;
         OPEN: unless ( open FILE, $file ) {
             unless ( file_name_is_absolute $file ) {
-                foreach ( split /;/, $ENV{JS_INCLUDE} ) {
+                foreach ( split /;/, $ENV{ES_INCLUDE} ) {
                     open(FILE, catfile $_, $file) and last OPEN;
                 }
             };
@@ -209,6 +214,23 @@ sub text {
         $self->write($text);
     }
 };
+
+
+
+sub version_cmp {
+    our (@l, @r);
+    local (*l, *r) = map{
+        my @nums;
+        local $_ = $_;
+        $_ = sprintf "%vd", $_  unless /^[0-9]/;
+        [ split /\./ ]
+    } @_;
+    while ( @l || @r ) {
+        my $cmp = shift @l <=> shift @r;
+        return $cmp  if $cmp;
+    }
+    return 0;
+}
 
 
 

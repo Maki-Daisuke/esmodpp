@@ -1,1 +1,1 @@
-@perl "-I%~dp0\" "%~dp0jsmodpp.pl" %*
+@perl "-I%~dp0\" "%~dp0esmodpp.pl" %*
