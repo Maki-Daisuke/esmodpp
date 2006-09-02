@@ -1,7 +1,8 @@
 package JSModPP::JSCat;
-our $VERSION = 0.0.0;
+our $VERSION = 0.1.0;
 
 use Carp;
+use File::Spec::Functions qw/catfile/;
 use JSModPP::Basic;
 
 use base qw/JSModPP::Basic/;
@@ -26,7 +27,7 @@ sub require {
     my JSModPP::JSCat $self = shift;
     my @args = @{shift()};
     croak '@require requires one or more arguments.'  unless @args;
-    push @{$self->{_require}}, @args;
+    push @{$self->{_require}}, map{ catfile(split/\./) . ".js" } @args;
 };
 
 
