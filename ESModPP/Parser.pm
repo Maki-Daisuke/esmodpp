@@ -1,5 +1,5 @@
 package ESModPP::Parser;
-our $VERSION = 0.9.0;
+our $VERSION = 0.9.1;
 
 use utf8;
 use strict;
@@ -14,7 +14,7 @@ our @EXPORT_OK   = qw/is_identifier parse_namespace/;
 our %EXPORT_TAGS = (all => \@EXPORT_OK);
 
 
-use fields qw/_warning _buffer _source/;
+use fields qw/_warning _buffer/;
 
 my $can = sub {
     my ($self, $method) = @_;
@@ -26,14 +26,8 @@ sub new {
     $class = ref $class || $class;
     my ESModPP::Parser $self = fields::new($class);
     $self->{_buffer}  = "";
-    $self->{_source}  = "";
     $self->{_warning} = 1;
     $self;
-}
-
-sub source {
-    my ESModPP::Parser $self = shift;
-    $self->{_source};
 }
 
 sub warning {
@@ -67,7 +61,6 @@ my $argument      = qr{$literal|$single_quoted|$double_quoted};
 
 sub chunk {
     (my ESModPP::Parser $self, my $chunk) = @_;
-    $self->{_source} .= $chunk;
     my @lines = split /$re_terminator/, $chunk, -1;
     return 1  unless @lines;
     $lines[0] = $self->{_buffer} . $lines[0];
