@@ -1,10 +1,9 @@
 package ESModPP::ESCat;
-our $VERSION = 0.9.0;
+our $VERSION = 0.9.2;
 
 use Carp;
 use File::Spec::Functions qw/catfile/;
-use ESModPP;
-use ESModPP::Parser qw/parse_namespace/;
+use ESModPP qw/parse_namespace/;
 
 use constant MODULE_EXT => ".js";
 
@@ -37,7 +36,7 @@ sub require {
         croak "Invalid version string: `$_'"  unless /^\d+(?>\.\d+)*$/;
         $version = $_;
     }
-    $self->{_require}->{ catfile(@names) . MODULE_EXT } = $version;
+    $self->{_require}{ catfile(@names) . MODULE_EXT } = $version;
 };
 
 

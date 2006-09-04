@@ -1,5 +1,5 @@
 package ESModPP;
-our $VERSION = 0.9.1;
+our $VERSION = 0.9.2;
 
 use strict;
 no strict 'refs';
@@ -11,7 +11,7 @@ use Carp;
 use File::Spec::Functions qw/catfile file_name_is_absolute/;
 
 use base qw/Exporter ESModPP::Parser/;
-our @EXPORT_OK   = qw/version_cmp/;
+our @EXPORT_OK   = qw/is_identifier parse_namespace version_cmp/;
 our @EXPORT_TAGS = (all => \@EXPORT_OK);
 
 use fields qw{
@@ -30,23 +30,23 @@ sub new : method {
     my $class = shift;
     my ESModPP $self = $class->SUPER::new;
     $self->{_buffer}    = "";
-    $self->{_esmodpp}   = undef;
-    $self->{_version}   = undef;
-    $self->{_target}    = "GLOBAL";
-    $self->{_namespace} = {};
-    $self->{_with}      = [];
-    $self->{_export}    = [];
-    $self->{_global}    = [];
-    $self->{_shared}    = [];
+    $self->{_esmodpp}   = undef;     # true | false (undef means no @esmodpp directive has appeared.)
+    $self->{_version}   = undef;     # /^\d+(?>\.\d+)*$/ | undef (undef means no @version directive has appeared)
+    $self->{_target}    = "GLOBAL";  # /NAMESPACE/
+    $self->{_namespace} = {};        # {/NAMESPACE/ => [/IDENTIFIER/]}
+    $self->{_with}      = [];        # [/NAMESPACE/]
+    $self->{_export}    = [];        # [{namespace => /NAMESPACE/, name => /IDENTIFIER/}]
+    $self->{_global}    = [];        # [/IDENTIFIER/]
+    $self->{_shared}    = [];        # [/NAMESPACE.IDENTIFIER/]
     $self;
 }
 
 my $register_ns = sub : method {
     my ESModPP $self = shift;
     my $ns = shift;
-    my @id = parse_namespace $ns  or croak "Invalid namespace: `$ns'";
+    my @id = parse_namespace($ns)  or croak "Invalid namespace: `$ns'";
     $ns = join ".", @id;
-    ${$self->{_namespace}}{$ns} = \@id;
+    $self->{_namespace}{$ns} = \@id;
     $ns;
 };
 
@@ -61,8 +61,8 @@ sub active : method {
 }
 
 sub write : method {
-    (my ESModPP $self, my @args) = @_;
-    $self->{_buffer} .= join "", @args;
+    my ESModPP $self = shift;
+    $self->{_buffer} .= join "", @_;
 }
 
 sub result : method {
@@ -93,7 +93,7 @@ sub result : method {
             var NAMESPACE;
             @{[ $self->{_buffer} ]}
             return {
-                @{[ join ", ", map{"\$$_->{name}: $_->{name}"} @{$self->{_export}} ]}
+                @{[ join ", ", map{"$_->{name}: $_->{name}"} @{$self->{_export}} ]}
             };
         }();
     };
@@ -102,7 +102,7 @@ sub result : method {
     foreach ( @{$self->{_export}} ) {
         my ($ns, $name) = ($_->{namespace}, $_->{name});
         $ns = $ns ? "$ns.$name" : $name;
-        $buf .= "    this.$ns = \$$name;\n";
+        $buf .= "    this.$ns = $name;\n";
     }
     $buf .= "}\n";     # End of with
     $buf .= "}).call(null);\n";  # The end of the top-level closure.
@@ -110,20 +110,30 @@ sub result : method {
 }
 
 
+sub directive : method {
+    my ESModPP $self = shift;
+    if ( $self->{_esmodpp}  or  $_[0] eq '@esmodpp' ) {
+        $self->SUPER::directive(@_);
+    } else {
+        $self->write($_[2]);
+    }
+}
+
 sub text : method {
-    (my ESModPP $self, undef, my $text) = @_;
+    (my ESModPP $self, my $text) = @_;
     $self->write($text);
 }
 
 *{__PACKAGE__.'::@esmodpp'} = sub : method {
     my ESModPP $self = shift;
     my @args = @{shift()};
+    my $text = shift;
     if ( @args ) {
         croak '@esmodpp takes at most one argument'                                 unless @args == 1;
         local $_ = shift @args;
         if ( /^off$/i ) {
             if ( $self->{_esmodpp} ) { $self->{_esmodpp} = "" }
-            else                     { $self->write(shift)    }
+            else                     { $self->write($text)    }
             return;
         }
         croak "Invalid version string: `$_'"                                        unless /^\d+(?>\.\d+)*$/;
@@ -134,7 +144,6 @@ sub text : method {
 
 *{__PACKAGE__.'::@version'} = sub : method {
     my ESModPP $self = shift;
-    return $self->write($_[1])  unless $self->active;
     my @args = @{shift()};
     croak '@version takes just one argument'  unless @args == 1;
     local $_ = shift @args;
@@ -145,7 +154,6 @@ sub text : method {
 
 *{__PACKAGE__.'::@use-namespace'} = sub : method {
     my ESModPP $self = shift;
-    return $self->write($_[1])  unless $self->active;
     my @args = @{shift()};
     croak '@use-namespace takes just one argument'  unless @args == 1;
     my $ns = $self->$register_ns($args[0])          unless $args[0] eq "GLOBAL";
@@ -155,14 +163,12 @@ sub text : method {
 
 *{__PACKAGE__.'::@with-namespace'} = sub : method {
     my ESModPP $self = shift;
-    return $self->write($_[1])  unless $self->active;
     my @args = @{shift()};
     croak '@with-namespace requires one or more arguments'  unless @args;
     foreach ( @args ) {
         if ( $_ eq "GLOBAL" ) {
             push @{$self->{_with}}, '(function(){return this;}).call(null)';
-        }
-        else {
+        } else {
             my $ns = $self->$register_ns($_);
             push @{$self->{_with}}, $ns;
         }
@@ -171,7 +177,6 @@ sub text : method {
 
 *{__PACKAGE__.'::@namespace'} = sub : method {
     my ESModPP $self = shift;
-    return $self->write($_[1])  unless $self->active;
     my @args = @{shift()};
     my $text = shift;
     croak '@namespace takes just one argument.'  unless @args == 1;
@@ -183,16 +188,14 @@ sub text : method {
 
 *{__PACKAGE__.'::@export'} = sub : method {
     my ESModPP $self = shift;
-    return $self->write($_[1])  unless $self->active;
     my @args = @{shift()};
     my $target = $self->{_target};
     foreach ( @args ) {
-        croak "Invalid identifier: `$_'"  unless is_identifier $_;
+        croak "Invalid identifier: `$_'"  unless is_identifier($_);
         if ( $target eq "GLOBAL" ) {
             push @{$self->{_global}}, $_;
             push @{$self->{_export}}, {namespace=>'', name=>$_};
-        }
-        else {
+        } else {
             push @{$self->{_shared}}, "$target.$_";
             push @{$self->{_export}}, {namespace=>$target, name=>$_};
         }
@@ -201,15 +204,13 @@ sub text : method {
 
 *{__PACKAGE__.'::@shared'} = sub : method {
     my ESModPP $self = shift;
-    return $self->write($_[1])  unless $self->active;
     my @args = @{shift()};
     my $target = $self->{_target};
     foreach ( @args ) {
-        croak "Invalid identifier: `$_'"  unless is_identifier $_;
+        croak "Invalid identifier: `$_'"  unless is_identifier($_);
         if ( $target eq "GLOBAL" ) {
             push @{$self->{_global}}, $_;
-        }
-        else {
+        } else {
             push @{$self->{_shared}}, "$target.$_";
         }
     }
@@ -217,7 +218,6 @@ sub text : method {
 
 *{__PACKAGE__.'::@include'} = sub : method {
     my ESModPP $self = shift;
-    return $self->write($_[1])  unless $self->active;
     my @args = @{shift()};
     croak '@include requires one or more arguments.'  unless @args;
     foreach my $file ( @args ) {
@@ -238,21 +238,62 @@ sub text : method {
 
 
 
+my $UnicodeLetter         = '\p{IsLu}\p{IsLl}\p{IsLt}\p{IsLm}\p{IsLo}\p{IsNl}';
+my $UnicodeEscapeSequence = qr{\\u[0-9a-fA-F]{4}};
+my $IdentifierStart       = qr{[\$_$UnicodeLetter]|$UnicodeEscapeSequence};
+my $IdentifierPart        = qr{[\$_$UnicodeLetter\p{IsMn}\p{IsMc}\p{IsNd}\p{IsPc}]|$UnicodeEscapeSequence};
+my $Identifier            = qr{(?>$IdentifierStart$IdentifierPart*)};
+
+my %reserved = map{ $_ => 1 } qw{
+    break     else        new        var
+    case      finally     return     void
+    catch     for         switch     while
+    continue  function    this       with
+    default   if          throw
+    delete    in          try
+    do        instanceof  typeof
+    abstract  enum        int        short
+    boolean   export      interface  static
+    byte      extends     long       super
+    char      final       native     synchronized
+    class     float       package    throws
+    const     goto        private    transient
+    debugger  implements  protected  volatile
+    double    import      public
+};
+
+sub is_identifier ($) {
+    local $_ = shift;
+    /^$Identifier$/o  and  not exists $reserved{$_};
+}
+
+sub parse_namespace ($) {
+    local $_ = shift;
+    my @id;
+    foreach ( split /\./ ) {
+        return unless is_identifier $_;
+        push @id, $_;
+    }
+    return unless @id;
+    @id;
+}
+
+
+sub split_version {
+    local $_ = shift;
+    $_ = sprintf "%vd", $_  unless /^\d+(?>\.\d+)*$/;
+    split /\./;
+}
+
 sub version_cmp {
-    our (@l, @r);
-    local (*l, *r) = map{
-        my @nums;
-        local $_ = $_;
-        $_ = sprintf "%vd", $_  unless /^[0-9]/;
-        [ split /\./ ]
-    } @_;
+    my @l = split_version shift;
+    my @r = split_version shift;
     while ( @l || @r ) {
         my $cmp = shift @l <=> shift @r;
         return $cmp  if $cmp;
     }
     return 0;
 }
-
 
 
 1;
