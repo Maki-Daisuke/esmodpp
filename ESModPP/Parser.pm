@@ -59,43 +59,46 @@ sub result {
 my $terminator    = '\x{000A}\x{000D}\x{2028}\x{2029}';
 my $line          = qr{[^$terminator]*[$terminator]};
 my $white         = '\t\x{000B}\f \x{00A0}\p{IsZs}';
-my $directive     = qr{^[$white]*//(\@[A-Za-z0-9_-]+)};
+my $directive     = qr{(?:[$terminator]|\A)[$white]*(//\@[A-Za-z0-9_-]+)([^$terminator]*)};
 my $literal       = qr{([^$terminator$white'"][^$terminator$white]*)};
 my $single_quoted = qr{'([^$terminator$white']*(?:''[^$terminator$white']*)*)'};
 my $double_quoted = qr{"([^$terminator$white"]*(?:""[^$terminator$white"]*)*)"};
 my $argument      = qr{$literal|$single_quoted|$double_quoted};
 
+
 sub chunk {
     (my ESModPP::Parser $self, my $chunk) = @_;
-    $chunk = $self->{_buffer} . $chunk;
-    while ( $chunk =~ /\G($line)/gco ) {
-        local $_ = $1;
-        unless ( /$directive/gco ) {
-            $self->text($_);
-            next;
-        }
-        my $name = $1;
+    $self->{_buffer} .= $chunk;
+    while ( $self->{_buffer} =~ /$directive/o ) {
+        my ($name, $args) = (substr($1, 2), $2);
+        $self->text( substr $self->{_buffer}, 0, $-[1] );
+        substr $self->{_buffer}, 0, $+[0], "";
         my @args = ();
-        while ( /\G[$white]+$argument/gco ) {
+        while ( $args =~ /\G[$white]+$argument/gco ) {
              my $value  = $1;
             (my $single = $2) =~ s/''/'/g;
             (my $double = $3) =~ s/""/"/g;
             push @args, "$value$single$double";
         }
-        unless ( /\G[$white]*$/gco ) {
-            carp "Warning: `directive-like' line is ignored (probably, unmatched quotation?): $_"  if $self->{_warning};
-            $self->text($_);
+        unless ( $args =~ /\G[$white]*$/gco ) {
+            carp "Warning: `directive-like' line is ignored (probably, unmatched quotation?): //$name$args"  if $self->{_warning};
+            $self->text("//$name$args");
             next;
         }
-        $self->directive($name, \@args, $_);
+        $self->directive($name, \@args, "//$name$args");
     }
-    $self->{_buffer} = substr $chunk, pos $chunk;
     return 1;
 }
 
+sub unread : method {
+    my ESModPP::Parser $self = shift;
+    $self->{_buffer} = join("", @_) . $self->{_buffer};
+}
+
 sub eof {
-    my $self = shift;
-    $self->chunk("\n");
+    my ESModPP::Parser $self = shift;
+    $self->text($self->{_buffer});
+    $self->{_buffer} = "";
     $self->result;
 }
 

@@ -1,5 +1,5 @@
 package ESModPP;
-our $VERSION = 0.9.2;
+our $VERSION = 0.10.0;
 
 use strict;
 no strict 'refs';
@@ -24,6 +24,8 @@ use fields qw{
     _export
     _global
     _shared
+    _require
+    _extend
 };
 
 sub new : method {
@@ -38,6 +40,8 @@ sub new : method {
     $self->{_export}    = [];        # [{namespace => /NAMESPACE/, name => /IDENTIFIER/}]
     $self->{_global}    = [];        # [/IDENTIFIER/]
     $self->{_shared}    = [];        # [/NAMESPACE.IDENTIFIER/]
+    $self->{_require}   = {};        # {/NAMESPACE/ => /VERSION/}
+    $self->{_extend}    = {};        # {/NAMESPACE/ => /VERSION/}
     $self;
 }
 
@@ -48,6 +52,22 @@ my $register_ns = sub : method {
     $ns = join ".", @id;
     $self->{_namespace}{$ns} = \@id;
     $ns;
+};
+
+my $duplicate_check = sub : method {
+    my ESModPP $self = shift;
+    my ($module, $version) = @_;
+    $module = join ".", parse_namespace($module)    or croak "Invalid module name: `$module'";
+    if ( length $version ) {
+        croak "Invalid version string: `$version'"  unless $version =~ /^\d+(?>\.\d+)*$/;
+        if ( defined $self->{_require}{$module}  and  $self->{_require}{$module} ne $version ) {  # version of `undef' does not restrict module version.
+            croak "`$module' is already required with version $self->{_require}{$module}, but required again with version $version.";
+        }
+        if ( defined $self->{_extend}{$module}  and  $self->{_extend}{$module} ne $version ) {
+            croak "`$module' is already required with version $self->{_extend}{$module}, but required again with version $version.";
+        }
+    }
+    ($module, $version);
 };
 
 sub version : method {
@@ -107,6 +127,16 @@ sub result : method {
     $buf .= "}\n";     # End of with
     $buf .= "}).call(null);\n";  # The end of the top-level closure.
     $buf;
+}
+
+sub require : method {
+    my ESModPP $self = shift;
+    return { %{$self->{_require}} };
+}
+
+sub extend : method {
+    my ESModPP $self = shift;
+    return { %{$self->{_extend}} };
 }
 
 
@@ -182,8 +212,8 @@ sub text : method {
     croak '@namespace takes just one argument.'  unless @args == 1;
     my $use  = '@use-namespace';
     my $with = '@with-namespace';
-    $self->$use([$args[0]], $text);
-    $self->$with([$args[0]], $text);
+    $self->$use(\@args, $text);
+    $self->$with(\@args, $text);
 };
 
 *{__PACKAGE__.'::@export'} = sub : method {
@@ -228,12 +258,30 @@ sub text : method {
                     open(FILE, catfile $_, $file) and last OPEN;
                 }
             };
-            croak "Can't open file: $file";
+            croak "Can't open included file `$file': $!";
         }
         read FILE, my $text, (stat FILE)[7];
         close FILE;
-        $self->write($text);
+        $self->unread($text);
     }
+};
+
+*{__PACKAGE__.'::@require'} = sub {
+    my ESModPP $self = shift;
+    my @args = @{shift()};
+    croak '@require requires at least one argument.'  unless @args;
+    croak '@require takes at most two arguments.'     if @args > 2;
+    my ($module, $version) = $self->$duplicate_check(@args);
+    $self->{_require}{$module} = $version;
+};
+
+*{__PACKAGE__.'::@extend'} = sub {
+    my ESModPP $self = shift;
+    my @args = @{shift()};
+    croak '@extend requires at least one argument.'  unless @args;
+    croak '@extend takes at most two arguments.'     if @args > 2;
+    my ($module, $version) = $self->$duplicate_check(@args);
+    $self->{_extend}{$module} = $version;
 };
 
 

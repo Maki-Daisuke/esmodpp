@@ -2,7 +2,7 @@ our $VERSION = $ESModPP::ESCat::VERSION;
 
 use Cwd qw/ realpath /;
 use File::Spec::Functions qw/ catfile file_name_is_absolute /;
-use ESModPP::ESCat;
+use ESModPP;
 
 unless ( @ARGV ) {
     print "Input ECMAScript source file(s).\n";
@@ -44,7 +44,7 @@ while ( @ARGV ) {
     next if $files{$abspath}{code};
 
     open FILE, $abspath  or error "Cannot open `$abspath': Access denied.";
-    my $pp = ESModPP::ESCat->new;
+    my $pp = ESModPP->new;
     while ( <FILE> ) {
         local $@;
         eval{ $pp->chunk($_) };
@@ -54,6 +54,8 @@ while ( @ARGV ) {
     $files{$abspath}{code} = $pp->eof;
     
     foreach ( keys %{$pp->require} ) {
+        s{\.}{/}g;
+        $_ .= ".js";
         my $required = search $_;
         $depend{$abspath, $required} = 1;
         push @ARGV, $required;
