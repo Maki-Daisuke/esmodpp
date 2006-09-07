@@ -9,7 +9,7 @@ no warnings 'uninitialized';
 use Carp;
 
 
-use fields qw/_buffer _lineno _warning/;
+use fields qw/_buffer _lineno/;
 
 sub new {
     my $class = shift;
@@ -17,14 +17,7 @@ sub new {
     my ESModPP::Parser $self = fields::new($class);
     $self->{_buffer}  = "\n";
     $self->{_lineno}  = 0;
-    $self->{_warning} = 1;
     $self;
-}
-
-sub warning : method {
-    my ESModPP::Parser $self = shift;
-    $self->{_warning} = shift  if @_;
-    $self->{_warning};
 }
 
 sub lineno : method {
@@ -44,20 +37,29 @@ sub directive : method {
     if ( $self->$can($name) ) {
         $self->$name($args, $line);
     } else {
+        $self->warning("directive line is found but ignored, since `$name' method is not defined (possibly typo?)");
         $self->text($line);
     }
 }
 
 # This is called when text sequence which is not a preprocessor-directive is found.
 sub text : method {
-    my $class = ref shift;
+    my $class = shift;
+    $class = ref $class || $class;
     croak "${class}::text is not implemented";
 }
 
 # This is called when eof method is called.
 sub result : method {
-    my $class = ref shift;
+    my $class = shift;
+    $class = ref $class || $class;
     croak "${class}::result is not implemented";
+}
+
+# This is called when issuing warning.
+sub warning : method {
+    my ESModPP::Parser $self = shift;
+    print STDERR "WARNING: ", @_, " at line ", $self->lineno, "\n";
 }
 
 
@@ -92,7 +94,7 @@ sub chunk : method {
                 push @args, "$literal$single$double";
             }
             unless ( $args =~ /\G[$white]*$/gco ) {
-                carp "Warning: `directive-like' line is ignored (probably, unmatched quotation?) at ", $self->lineno, ": //$name$args"  if $self->{_warning};
+                $self->warning("`directive-like' line is ignored (probably, unmatched quotation?)");
                 $self->text("//$name$args");
                 next;
             }
