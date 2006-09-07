@@ -1,10 +1,17 @@
-all: esmodpp escat
+.SUFFIXES: .exe .pl .pm
 
-esmodpp: esmodpp.pl ESModPP.pm
-	pp -x -z 0 -o esmodpp.exe esmodpp.pl
 
-escat: esmodpp escat.pl ESModPP.pm
-	pp -x -z 0 -o escat.exe escat.pl
+all: esmodpp.exe escat.exe
+
+.pl.exe:
+	pp -z 0 -o $@ $<
+
+esmodpp.pl: ESModPP.pm
+	touch esmodpp.pl
+
+escat.pl: ESModPP.pm
+	touch escat.pl
 
 ESModPP.pm: ESModPP/Parser.pm
+	touch ESModPP.pm
 
