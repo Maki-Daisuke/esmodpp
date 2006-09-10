@@ -1,5 +1,5 @@
 package ESModPP::Parser;
-our $VERSION = 0.9.2;
+our $VERSION = 0.10.0;
 
 use utf8;
 use strict;
