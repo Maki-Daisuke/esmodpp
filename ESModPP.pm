@@ -33,22 +33,32 @@ sub new : method {
     my ESModPP $self = $class->SUPER::new;
     $self->{_buffer}    = "";
     $self->{_esmodpp}   = undef;     # true | false (undef means no @esmodpp directive has appeared.)
-    $self->{_version}   = undef;     # /^\d+(?>\.\d+)*$/ | undef (undef means no @version directive has appeared)
+    $self->{_version}   = undef;     # /VERSION/ | undef (undef means no @version directive has appeared)
     $self->{_target}    = "GLOBAL";  # /NAMESPACE/
     $self->{_namespace} = {};        # {/NAMESPACE/ => [/IDENTIFIER/]}
     $self->{_with}      = [];        # [/NAMESPACE/]
     $self->{_export}    = [];        # [{namespace => /NAMESPACE/, name => /IDENTIFIER/}]
     $self->{_global}    = [];        # [/IDENTIFIER/]
     $self->{_shared}    = [];        # [/NAMESPACE.IDENTIFIER/]
-    $self->{_require}   = {};        # {/NAMESPACE/ => /VERSION/}
-    $self->{_extend}    = {};        # {/NAMESPACE/ => /VERSION/}
+    $self->{_require}   = {};        # {/NAMESPACE/ => /VERSPEC/}
+    $self->{_extend}    = {};        # {/NAMESPACE/ => /VERSPEC/}
     $self;
 }
+
+
+my $re_version = qr{\d+(?:\.\d+)*};
+my $re_verspec = qr{=$re_version|$re_version\+?};
+
+
+my $croak = sub : method {
+    my ESModPP $self = shift;
+    croak @_, " at line ", $self->lineno;
+};
 
 my $register_ns = sub : method {
     my ESModPP $self = shift;
     my $ns = shift;
-    my @id = parse_namespace($ns)  or croak "Invalid namespace: `$ns'";
+    my @id = parse_namespace($ns)  or $self->$croak("Invalid namespace: `$ns'");
     $ns = join ".", @id;
     $self->{_namespace}{$ns} = \@id;
     $ns;
@@ -57,14 +67,14 @@ my $register_ns = sub : method {
 my $duplicate_check = sub : method {
     my ESModPP $self = shift;
     my ($module, $version) = @_;
-    $module = join ".", parse_namespace($module)    or croak "Invalid module name: `$module'";
+    $module = join ".", parse_namespace($module)    or $self->$croak("Invalid module name: `$module'");
     if ( length $version ) {
-        croak "Invalid version string: `$version'"  unless $version =~ /^\d+(?>\.\d+)*$/;
+        $self->$croak("Invalid version-specifier: `$version'")  unless $version =~ /^$re_verspec$/o;
         if ( defined $self->{_require}{$module}  and  $self->{_require}{$module} ne $version ) {  # version of `undef' does not restrict module version.
-            croak "`$module' is already required with version $self->{_require}{$module}, but required again with version $version.";
+            $self->$croak("`$module' is already required with version $self->{_require}{$module}, but required again with version $version.");
         }
         if ( defined $self->{_extend}{$module}  and  $self->{_extend}{$module} ne $version ) {
-            croak "`$module' is already required with version $self->{_extend}{$module}, but required again with version $version.";
+            $self->$croak("`$module' is already required with version $self->{_extend}{$module}, but required again with version $version.");
         }
     }
     ($module, $version);
@@ -159,15 +169,15 @@ sub text : method {
     my @args = @{shift()};
     my $text = shift;
     if ( @args ) {
-        croak '@esmodpp takes at most one argument'                                 unless @args == 1;
+        $self->$croak('@esmodpp takes at most one argument')                                 unless @args == 1;
         local $_ = shift @args;
         if ( /^off$/i ) {
             if ( $self->{_esmodpp} ) { $self->{_esmodpp} = "" }
             else                     { $self->write($text)    }
             return;
         }
-        croak "Invalid version string: `$_'"                                        unless /^\d+(?>\.\d+)*$/;
-        croak sprintf "ESModPP %s is required, but this is only %vd", $_, $VERSION  if version_cmp($_, $VERSION) > 0;
+        $self->$croak("Invalid version string: `$_'")                                        unless /^$re_version$/o;
+        $self->$croak(sprintf "ESModPP %s is required, but this is only %vd", $_, $VERSION)  if version_cmp($_, $VERSION) > 0;
     }
     $self->{_esmodpp} = 1;
 };
@@ -175,18 +185,18 @@ sub text : method {
 *{__PACKAGE__.'::@version'} = sub : method {
     my ESModPP $self = shift;
     my @args = @{shift()};
-    croak '@version takes just one argument'  unless @args == 1;
+    $self->$croak('@version takes just one argument')  unless @args == 1;
     local $_ = shift @args;
-    croak "Invalid version string: `$_'"      unless /^\d+(?>\.\d+)*$/;
-    croak '@version appears more than once'   if defined $self->{_version};
+    $self->$croak("Invalid version string: `$_'")      unless /^$re_version$/o;
+    $self->$croak('@version appears more than once')   if defined $self->{_version};
     $self->{_version} = $_;
 };
 
 *{__PACKAGE__.'::@use-namespace'} = sub : method {
     my ESModPP $self = shift;
     my @args = @{shift()};
-    croak '@use-namespace takes just one argument'  unless @args == 1;
-    my $ns = $self->$register_ns($args[0])          unless $args[0] eq "GLOBAL";
+    $self->$croak('@use-namespace takes just one argument')  unless @args == 1;
+    my $ns = $self->$register_ns($args[0])                   unless $args[0] eq "GLOBAL";
     $self->{_target} = $ns;
     $self->write("NAMESPACE = '$ns';\n");
 };
@@ -194,7 +204,7 @@ sub text : method {
 *{__PACKAGE__.'::@with-namespace'} = sub : method {
     my ESModPP $self = shift;
     my @args = @{shift()};
-    croak '@with-namespace requires one or more arguments'  unless @args;
+    $self->$croak('@with-namespace requires one or more arguments')  unless @args;
     foreach ( @args ) {
         if ( $_ eq "GLOBAL" ) {
             push @{$self->{_with}}, '(function(){return this;}).call(null)';
@@ -209,7 +219,7 @@ sub text : method {
     my ESModPP $self = shift;
     my @args = @{shift()};
     my $text = shift;
-    croak '@namespace takes just one argument.'  unless @args == 1;
+    $self->$croak('@namespace takes just one argument.')  unless @args == 1;
     my $use  = '@use-namespace';
     my $with = '@with-namespace';
     $self->$use(\@args, $text);
@@ -221,7 +231,7 @@ sub text : method {
     my @args = @{shift()};
     my $target = $self->{_target};
     foreach ( @args ) {
-        croak "Invalid identifier: `$_'"  unless is_identifier($_);
+        $self->$croak("Invalid identifier: `$_'")  unless is_identifier($_);
         if ( $target eq "GLOBAL" ) {
             push @{$self->{_global}}, $_;
             push @{$self->{_export}}, {namespace=>'', name=>$_};
@@ -237,7 +247,7 @@ sub text : method {
     my @args = @{shift()};
     my $target = $self->{_target};
     foreach ( @args ) {
-        croak "Invalid identifier: `$_'"  unless is_identifier($_);
+        $self->$croak("Invalid identifier: `$_'")  unless is_identifier($_);
         if ( $target eq "GLOBAL" ) {
             push @{$self->{_global}}, $_;
         } else {
@@ -249,7 +259,7 @@ sub text : method {
 *{__PACKAGE__.'::@include'} = sub : method {
     my ESModPP $self = shift;
     my @args = @{shift()};
-    croak '@include requires one or more arguments.'  unless @args;
+    $self->$croak('@include requires one or more arguments.')  unless @args;
     foreach my $file ( @args ) {
         local *FILE;
         OPEN: unless ( open FILE, $file ) {
@@ -258,7 +268,7 @@ sub text : method {
                     open(FILE, catfile $_, $file) and last OPEN;
                 }
             };
-            croak "Can't open included file `$file': $!";
+            $self->$croak("Can't open included file `$file': $!");
         }
         read FILE, my $text, (stat FILE)[7];
         close FILE;
@@ -269,8 +279,8 @@ sub text : method {
 *{__PACKAGE__.'::@require'} = sub {
     my ESModPP $self = shift;
     my @args = @{shift()};
-    croak '@require requires at least one argument.'  unless @args;
-    croak '@require takes at most two arguments.'     if @args > 2;
+    $self->$croak('@require requires at least one argument.')  unless @args;
+    $self->$croak('@require takes at most two arguments.')     if @args > 2;
     my ($module, $version) = $self->$duplicate_check(@args);
     $self->{_require}{$module} = $version;
 };
@@ -278,8 +288,8 @@ sub text : method {
 *{__PACKAGE__.'::@extend'} = sub {
     my ESModPP $self = shift;
     my @args = @{shift()};
-    croak '@extend requires at least one argument.'  unless @args;
-    croak '@extend takes at most two arguments.'     if @args > 2;
+    $self->$croak('@extend requires at least one argument.')  unless @args;
+    $self->$croak('@extend takes at most two arguments.')     if @args > 2;
     my ($module, $version) = $self->$duplicate_check(@args);
     $self->{_extend}{$module} = $version;
 };
@@ -329,7 +339,7 @@ sub parse_namespace ($) {
 
 sub split_version {
     local $_ = shift;
-    $_ = sprintf "%vd", $_  unless /^\d+(?>\.\d+)*$/;
+    $_ = sprintf "%vd", $_  unless /^$re_version$/o;
     split /\./;
 }
 

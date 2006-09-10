@@ -6,12 +6,13 @@ unless ( @ARGV ) {
 }
 
 my $file = shift;
-open FILE, $file  or print("Can't open file: $file\n"), exit(1);
-my $pp = new ESModPP;
 local $@;
 my $result = eval{
-    $pp->chunk($_) while <FILE>;
-    $pp->eof;
+    ESModPP->file($file)  or print(STDERR "Can't open file: $file\n"), exit(1);
 };
-print($@=~/(.*? at )/s, "$file line $..\n"), exit(1)  if $@;
+if ( $@ ) {
+    $@ =~ /(.*?) at line (\d+)/s;
+    print STDERR "$1 at $file line $2\n";
+    exit(1);
+}
 print $result;
