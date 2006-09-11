@@ -124,29 +124,20 @@ sub eof : method {
 }
 
 
-sub string : method {
-    my ($class, $text) = @_;
-    $class = ref $class || $class;
-    my $self = $class->new;
-    $self->chunk($text);
-    $self->eof;
-}
-
 sub handle : method {
-    my ($class, $fh) = @_;
-    $class = ref $class || $class;
+    my ESModPP::Parser $self = shift;
+    my $fh = shift;
     $fh = qualify_to_ref $fh, caller  unless ref $fh;
-    my $self = $class->new;
     $self->chunk($_)  while <$fh>;
-    $self->eof;
 }
 
 sub file : method {
-    my ($class, $file) = @_;
+    my ESModPP::Parser $self = shift;
+    my $file = shift;
     local *FILE;
     open FILE, $file  or  return;
     read FILE, my $text, (stat FILE)[7];
-    $class->string($text);
+    $self->chunk($text);
 }
 
 
