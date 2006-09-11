@@ -1,6 +1,5 @@
 use utf8;
 use ESModPP;
-#use XML::DOM;
 use XML::Generator;
 use Getopt::Compact;
 use Symbol qw/qualify_to_ref/;
@@ -28,23 +27,6 @@ sub branch {
     binmode $eso, ":raw";
     print $eso $p->eof;
     
-=cut
-    my $xml = new XML::DOM::Document;
-    $xml->setXMLDecl($xml->createXMLDecl("1.0", "UTF-8"));
-    my $root = $xml->appendChild($xml->createElement("esd"));
-    $root->setAttribute("version", "1.0");
-    my $mod = $root->appendChild($xml->createElement("module"));
-    $mod->setAttribute("version", $p->version);
-    foreach ( qw/require extend/ ) {
-        my $mods = $p->$_;
-        while ( my ($module, $version) = each %$mods ) {
-            my $e = $mod->appendChild($xml->createElement($_));
-            $e->setAttribute("module", $module);
-            $e->setAttribute("version", $version || 0);
-        }
-    }
-    print $esd $xml->toString;
-=cut
     my $gen = XML::Generator->new(":pretty");
     local (*require, *extend);
     *require = [];
