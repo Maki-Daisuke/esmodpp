@@ -7,6 +7,7 @@ no strict 'refs';
 no warnings 'uninitialized';
 
 use Carp;
+use Symbol qw/qualify_to_ref/;
 
 
 use fields qw/_buffer _lineno/;
@@ -134,6 +135,7 @@ sub string : method {
 sub handle : method {
     my ($class, $fh) = @_;
     $class = ref $class || $class;
+    $fh = qualify_to_ref $fh, caller  unless ref $fh;
     my $self = $class->new;
     $self->chunk($_)  while <$fh>;
     $self->eof;
@@ -141,14 +143,10 @@ sub handle : method {
 
 sub file : method {
     my ($class, $file) = @_;
-    $class = ref $class || $class;
     local *FILE;
     open FILE, $file  or  return;
-    my $self = $class->new;
     read FILE, my $text, (stat FILE)[7];
-    close FILE;
-    $self->chunk($text);
-    $self->eof;
+    $class->string($text);
 }
 
 
