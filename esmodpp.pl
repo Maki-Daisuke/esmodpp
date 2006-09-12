@@ -38,6 +38,7 @@ sub branch {
                                       version => $version || 0 });
         }
     }
+    binmode $esd, ":raw";
     binmode $esd, ":utf8";
     print $esd $gen->xmldecl(version => "1.0", encoding => "UTF-8"),
                $gen->esd( { version => "1.0" },
@@ -61,7 +62,7 @@ unless ( @ARGV ) {
     exit;
 }
 
-foreach my $file ( @ARGV ) {
+foreach my $file ( map{ glob $_ } @ARGV ) {
     open my $src, $file                        or error "Can't open file `$file': $!";
     (my $file_base = $file) =~ s/\.[^.]*$//s;
     open my $eso, ">$file_base.eso"            or error "Can't open file `$file_base.eso': $!";
