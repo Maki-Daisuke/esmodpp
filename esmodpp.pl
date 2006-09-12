@@ -62,16 +62,15 @@ unless ( @ARGV ) {
 }
 
 foreach my $file ( @ARGV ) {
-    open my $src, $file                        or error "Can't open file: `$file'";
+    open my $src, $file                        or error "Can't open file `$file': $!";
     (my $file_base = $file) =~ s/\.[^.]*$//s;
-    open my $eso, ">$file_base.eso"            or error "Can't open file: `$file_base.eso'";
-    open my $esd, ">$file_base.esd"            or error "Can't open file: `$file_base.esd'";
+    open my $eso, ">$file_base.eso"            or error "Can't open file `$file_base.eso': $!";
+    open my $esd, ">$file_base.esd"            or error "Can't open file `$file_base.esd': $!";
     local $@;
     eval{ branch $src, $eso, $esd };
     if ( $@ ) {
         $@ =~ /(.*?) at line (\d+)/s;
-        print STDERR "$1 at $file line $2\n";
-        exit 1;
+        error "$1 at $file line $2";
     }
 }
 
