@@ -11,7 +11,7 @@ my $go = Getopt::Compact->new(
     version => "0.10.0",
     args   => "[-m MODULE] [FILE] ...",
     struct => [ [[qw/m module/], "specify module by name rather than file name", ":s", \@module],
-                [[qw/o out/],    "output result to specified file"], ]
+                [[qw/o out/],    "output result to specified file", ":s"], ]
 );
 local *opts = $go->opts;
 
