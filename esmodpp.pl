@@ -34,8 +34,8 @@ sub branch {
     foreach ( qw/require extend/ ) {
         my $mods = $p->$_;
         while ( my ($module, $version) = each %$mods ) {
-            push @$_, $gen->require({ module  => $module,
-                                      version => $version || 0 });
+            push @$_, $gen->$_({ module  => $module,
+                                 version => $version || 0 });
         }
     }
     binmode $esd, ":raw";
