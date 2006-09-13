@@ -11,7 +11,8 @@ my $go = Getopt::Compact->new(
     version => "0.10.0",
     args   => "[-m MODULE] [FILE] ...",
     struct => [ [[qw/m module/], "specify module by name rather than file name", ":s", \@module],
-                [[qw/o out/],    "output result to specified file", ":s"], ]
+                [[qw/o out/],    "output result to specified file", ":s"],
+                [[qw/dep-graph/], "print dependency-graph in Dot format"], ]
 );
 local *opts = $go->opts;
 
@@ -29,6 +30,16 @@ sub report {
 sub error {
     print STDERR @_, "\n";
     exit 1;
+}
+
+sub out_handle () {
+    local *OUT;
+    if ( $opts{out} ) {
+        open OUT, ">$opts{out}"   or error "Can't open file `$opts{out}': $!";
+    } else {
+        *OUT = \*STDOUT;
+    }
+    return *OUT{IO};
 }
 
 sub check_ver {
@@ -68,8 +79,9 @@ sub esmodpp {
        and   $mtime < (stat $esd)[9]
        and   $mtime < (stat $eso)[9] )
     {
+        $js_path = "'$js_path'"  if $js_path =~ /\s/;
         report "esmodpp '$js_path' ... ";
-        system "esmodpp", "'$js_path'"  and error "$!";
+        system "esmodpp", $js_path  and error "$!";
         report "completed.\n";
     }
     return realpath $esd;
@@ -136,6 +148,21 @@ while ( @files ) {
         }
     }
     $esd->dispose;
+}
+
+
+# Dep-graph mode: print Dot file and exit.
+if ( $opts{"dep-graph"} ) {
+    local *OUT = out_handle;
+    print OUT "digraph dep {\n";
+    foreach ( keys %depend ) {
+        my ($from, $to) = split /$;/, $_;
+        my $ver   = "v$depend{$_}{version}";
+        my $style = $depend{$_}{kind} eq "extend" ? "bold" : "";
+        print qq{\t"$module_esd{$from}{name}" -> "$module_esd{$to}{name}" [label="$ver", style="$style"]\n};
+    }
+    print OUT "}\n";
+    exit;
 }
 
 
@@ -233,11 +260,7 @@ ORDER: while ( keys %module_esd ) {
 
 
 # Concatenate and output .eso files.
-if ( $opts{out} ) {
-    open OUT, ">$opts{out}"   or error "Can't open file `$opts{out}': $!";
-} else {
-    *OUT = \*STDOUT;
-}
+*OUT = out_handle;
 binmode OUT, ":raw";
 
 for my $esd ( @order ) {
