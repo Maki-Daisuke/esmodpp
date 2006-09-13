@@ -1,84 +1,252 @@
-our $VERSION = $ESModPP::ESCat::VERSION;
+use Carp;
+use XML::DOM;
+use Getopt::Compact;
+use Cwd qw/realpath/;
+use File::Spec::Functions qw/catfile/;
 
-use Cwd qw/ realpath /;
-use File::Spec::Functions qw/ catfile file_name_is_absolute /;
-use ESModPP;
 
-unless ( @ARGV ) {
-    print "Input ECMAScript source file(s).\n";
+my @module;
+my $go = Getopt::Compact->new(
+    name   => "EcmaScript Concatenating & Authoring Tool",
+    version => "0.10.0",
+    args   => "[-m MODULE] [FILE] ...",
+    struct => [ [[qw/m module/], "specify module by name rather than file name", ":s", \@module],
+                [[qw/o out/],    "output result to specified file"], ]
+);
+local *opts = $go->opts;
+
+unless ( @ARGV || @module ) {
+    print $go->usage;
     exit;
 }
-@ARGV = map{ glob $_ } @ARGV;
 
+
+
+sub report {
+    print STDERR @_;
+}
 
 sub error {
-    print @_, "\n";
+    print STDERR @_, "\n";
     exit 1;
 }
 
-sub search ($) {
-    my $file = shift;
-    local $@;
-    my $abspath = eval{ realpath $file };
-    return realpath $abspath  if not $@ and -f $abspath;
-    # Duplicate application of `realpath' is necessary for Win32 systems.
-    unless ( file_name_is_absolute $file ) {
-        foreach ( split /;/, $ENV{ES_LIB} ) {
-            local $@;
-            $abspath = eval{ realpath catfile $_, $file };
-            return realpath $abspath  if not $@ and -f $abspath;
+sub check_ver {
+    my ($spec, $ver) = @_;
+    if ( $spec =~ s/^=// ) {
+        my @l = split /\./, $spec;
+        my @r = split /\./, $ver;
+        return ''  unless @l == @r;
+        for ( my $i=0;  $i < @l;  $i++ ) {
+            return ''  unless $l[$i] == $r[$i];
+        }
+        return 1;
+    } elsif ( $spec =~ s/\+$// ) {
+        my @s = split /\./, $spec;
+        my @v = split /\./, $ver;
+        for ( my $i=0;  $i < @s-1;  $i++ ) {
+            return ''  unless $s[$i] == $v[$i];
+        }
+        return $s[-1] <= $v[@s-1];
+    } else {
+        my @s = split /\./, $spec;
+        my @v = split /\./, $ver;
+        for ( my $i=0;  $i < @s-1;  $i++ ) {
+            return ''  if $s[$i] > $v[$i];
+            return 1   if $s[$i] < $v[$i];
+        }
+        return 1;
+    }
+}
+
+sub esmodpp {
+    my $js_path = shift;
+    my $mtime = (stat $js_path)[9];
+    (my $esd = $js_path) =~ s/(?:\.[^.]*)?$/.esd/;
+    (my $eso = $js_path) =~ s/(?:\.[^.]*)?$/.eso/;
+    unless ( -f $esd  &&  -f $eso  
+       and   $mtime < (stat $esd)[9]
+       and   $mtime < (stat $eso)[9] )
+    {
+        report "esmodpp '$js_path' ... ";
+        system "esmodpp", "'$js_path'"  and error "$!";
+        report "completed.\n";
+    }
+    return realpath $esd;
+}
+
+sub locate_module ($) {
+    my $module = shift;
+    utf8::downgrade($module);  # utf8-flag on can cause problem when concatenated with path-string including wide-characters.
+                               # Fortunately, module name must not have wide-characters. So, manually turn off it.
+    my @component = split /\./, $module;
+    foreach ( split /;/, $ENV{ES_LIB} ) {
+        my $file = catfile $_, @component;
+        if ( my $abspath = eval{ realpath "$file.js" } ) {
+            return esmodpp $abspath;
+        } elsif ( $abspath = eval{ realpath "$file.esd" } ) {
+            # Duplicate application of `realpath' is necessary for Win32 systems.
+            return realpath $abspath;
         }
     }
-    error "Cannot open `$file': No such file.";
+    error "Can't locate module: $module";
 }
 
 
 
-my %files;   # $files{ABS_PATH}{code} / $files{ABS_PATH}{OK}
-my %depend;  # $depend{REQUIRE, REQUIRED}
-my $target;
+my %module_esd;  # /ABS_PATH/ => { name => "any string", version => /VERSION/, ok => true|false, dummy => true|false }                 # vertices
+my %depend;      # (REQUIRE, REQUIRED) => { kind => /require|extend|weak/, version => /VERSPEC/ }  # edges
 
-while ( @ARGV ) {
-    my $file = shift;
-    my $abspath = search $file;
-    next if $files{$abspath}{code};
 
-    open FILE, $abspath  or error "Cannot open `$abspath': Access denied.";
-    my $pp = ESModPP->new;
-    while ( <FILE> ) {
-        local $@;
-        eval{ $pp->chunk($_) };
-        error $@=~/(.* at )/s, "$file line $.." if $@;
-    }
-    close FILE;
-    $files{$abspath}{code} = $pp->eof;
-    
-    foreach ( keys %{$pp->require} ) {
-        s{\.}{/}g;
-        $_ .= ".js";
-        my $required = search $_;
-        $depend{$abspath, $required} = 1;
-        push @ARGV, $required;
-    }
+# Push initial files and modules.
+my @files;
+foreach ( map{ glob $_ } @ARGV ) {
+    (my $file = $_) =~ s/\.eso$/.esd/s;
+    eval{ $file = realpath $file }           or error "Can't locate file `$file'";
+    $file = esmodpp $file                    unless $file =~ /\.esd$/;
+    eval{ $file = realpath $file }           or error "Can't locate file `$file'";
+    $module_esd{$file} = {name => $_};
+    push @files, $file;
+}
+foreach ( @module ) {
+    my $file = locate_module $_;
+    $module_esd{$file} = {name => $_};
+    push @files, $file;
 }
 
-my @output;
-sub order {
+# Construct dependency digraph.
+while ( @files ) {
+    my $file = shift @files;
+    my $esd = eval{ XML::DOM::Parser->new->parsefile($file) }   or error "Invalid ESD file `$file': $@";
+    $esd->getDocumentElement->getAttribute("version") eq "1.0"  or error "`$file' is ESD v", $esd->getDocumentElement->getAttribute("version"), " file, but this can recognize only v1.0.";
+    my $mod = ($esd->getElementsByTagName("module"))[0]         or error "Invalid ESD file `$file': no <module> element";
+    $module_esd{$file}{version} = $mod->getAttribute("version") || 0;
+    for my $kind ( qw/require extend/ ) {
+        foreach ( $mod->getElementsByTagName($kind) ) {
+            my $module = $_->getAttribute("module")           or error "Invalid ESD file `$file': no module attribute in <$kind>";
+            my $path = locate_module $module;
+            unless ( exists $module_esd{$path} ) {
+                $module_esd{$path} = {name => $module};
+                push @files, $path;
+            }
+            $depend{$file, $path} = {
+                kind    => $kind,
+                version => $_->getAttribute("version") || 0
+            };
+        }
+    }
+    $esd->dispose;
+}
+
+
+# Check cyclic dependency.
+sub check_cyclic {
     my ($file, @path) = @_;
+    return 1  if $module_esd{$file}{ok};
     foreach ( @path ) {
         if ( $_ eq $file ) {
-            error "Cyclic dependency detected: ", join(" -> ", @path, $file), "\n";
+            error "Cyclic dependency detected: ", join " -> ", @path, $file;
         }
     }
-    return if $files{$file}{OK};
-    foreach ( keys %files ) {
-        order($_, @path, $file)  if $depend{$file, $_};
+    foreach ( keys %module_esd ) {
+        check_cyclic($_, @path, $file)  if $depend{$file, $_};
     }
-    push @output, $file;
-    $files{$file}{OK} = 1;
+    $module_esd{$file}{ok} = 1;
 }
-order $_  foreach keys %files;
+check_cyclic $_  foreach keys %module_esd;
 
-foreach ( @output ) {
-    print "$files{$_}{code}\n";
+
+# Check version requirements
+foreach ( keys %depend ) {
+    my ($require, $required) = split /$;/, $_;
+    unless ( check_ver $depend{$_}{version}, $module_esd{$required}{version} ) {
+        error "`$require' requires `$module_esd{$required}{name}' v$depend{$_}{version}, ",
+              "but `$required' is only v$module_esd{$required}{version}";
+    }
 }
+
+
+# Rewrite the dependency digraph using "weak" eadge so that there is no "extend" edge.
+# As following:
+#
+# A <<-- B
+# ^
+# |
+# C
+#
+# A <-- B
+# ^     ^
+#  \   /(week)
+#   \ /
+#    A' <-- C
+#
+REWRITE: for (;;) {
+    my $edge = undef;
+    foreach ( keys %depend ) {
+        if ( $depend{$_}{kind} eq "extend" ) {
+            $edge = $_;
+            last;
+        }
+    }
+    last REWRITE  unless $edge;
+    
+    my ($require, $required) = split /$;/, $edge;
+    $module_esd{"$required'"} = {dummy => 1};
+    foreach ( keys %module_esd ) {
+        next if $_ eq $require;
+        next unless exists $depend{$_, $required};
+        $depend{$_, "$required'"} = $depend{$_, $required};
+        delete $depend{$_, $required};
+    }
+    $depend{$edge}{kind} = "require";
+    $depend{"$required'", $required} = {kind => "require"};
+    $depend{"$required'", $require}  = {kind => "weak"};
+}
+
+
+my @order;
+ORDER: while ( keys %module_esd ) {
+    my $changed = 0;
+    my %requiring = map{ ((split /$;/, $_)[0], 1) } keys %depend;
+    foreach ( grep{ not exists $requiring{$_} } keys %module_esd ) {
+        $changed = 1;
+        push @order, { file    => $_,
+                       name    => $module_esd{$_}{name},
+                       version => $module_esd{$_}{version} }  unless $module_esd{$_}{dummy};
+        delete $module_esd{$_};
+        for my $edge ( keys %depend ) {
+            delete $depend{$edge}  if (split /$;/, $edge)[1] eq $_;
+        }
+    }
+    next ORDER  if $changed;
+    
+    # If you are here, there's cyclic dependency caused by "weak" edge.
+    # Delete an arbitrary "weak" edge, then, go ahead.
+    for my $edge ( keys %depend ) {
+        if ( $depend{$edge}{kind} eq "weak" ) {
+            delete $depend{$edge}{kind};
+            next ORDER;
+        }
+    }
+    croak "code bug";
+}
+
+
+# Concatenate and output .eso files.
+if ( $opts{out} ) {
+    open OUT, ">$opts{out}"   or error "Can't open file `$opts{out}': $!";
+} else {
+    *OUT = \*STDOUT;
+}
+binmode OUT, ":raw";
+
+for my $esd ( @order ) {
+    report $esd->{name}, " v", $esd->{version}, " ... ";
+    (my $eso = $esd->{file}) =~ s/\.esd$/.eso/s;
+    open IN, $eso   or error "Can't open file `$eso': $!";
+    binmode IN, ":raw";
+    print OUT $_  while <IN>;
+    close IN;
+    report "completed.\n";
+}
+
