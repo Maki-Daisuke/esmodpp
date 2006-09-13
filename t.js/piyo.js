@@ -1,0 +1,2 @@
+//@esmodpp
+//@require hoge
