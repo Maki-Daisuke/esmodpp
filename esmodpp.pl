@@ -7,7 +7,7 @@ use Symbol qw/qualify_to_ref/;
 
 my $go = Getopt::Compact->new(
     name    => "EcmaScript MODularizing PreProcessor",
-    version => "0.10.0",
+    version => "0.10.1",
     args    => "FILE...",
     struct  => [ [[qw/F filter/], "filter mode"] ]
 );

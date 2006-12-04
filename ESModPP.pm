@@ -1,5 +1,5 @@
 package ESModPP;
-our $VERSION = 0.10.0;
+our $VERSION = 0.10.1;
 
 use strict;
 no strict 'refs';
@@ -22,7 +22,6 @@ use fields qw{
     _namespace
     _with
     _export
-    _global
     _shared
     _require
     _extend
@@ -37,9 +36,8 @@ sub new : method {
     $self->{_target}    = "GLOBAL";  # /NAMESPACE/
     $self->{_namespace} = {};        # {/NAMESPACE/ => [/IDENTIFIER/]}
     $self->{_with}      = [];        # [/NAMESPACE/]
-    $self->{_export}    = [];        # [{namespace => /NAMESPACE/, name => /IDENTIFIER/}]
-    $self->{_global}    = [];        # [/IDENTIFIER/]
-    $self->{_shared}    = [];        # [/NAMESPACE.IDENTIFIER/]
+    $self->{_export}    = {};        # {/IDENTIFIER/ => /NAMESPACE/}
+    $self->{_shared}    = [];        # [{"namespace"=>/NAMESPACE/, "name"=>/IDENTIFIER/}]
     $self->{_require}   = {};        # {/NAMESPACE/ => /VERSPEC/}
     $self->{_extend}    = {};        # {/NAMESPACE/ => /VERSPEC/}
     $self;
@@ -99,9 +97,6 @@ sub result : method {
     my ESModPP $self = shift;
     return $self->{_buffer}  unless defined $self->{_esmodpp};
     my $buf = "(function(){\n";  # Top-level closure, which ensures that this-value refers the Global Object.
-    foreach ( @{$self->{_global}} ) {
-        $buf .= "    if ( this.$_ === undefined ) this.$_ = undefined;\n";
-    }
     foreach ( values %{$self->{_namespace}} ) {
         my @names = @$_;
         my $name = "this";
@@ -111,6 +106,7 @@ sub result : method {
         }
     }
     foreach ( @{$self->{_shared}} ) {
+        local $_ = $_->{namespace} eq "GLOBAL" ? $_->{name} : "$_->{namespace}.$_->{name}";
         $buf .= "    if ( this.$_ === undefined ) this.$_ = undefined;\n";
     }
     $buf .= "with ( function(){\n";
@@ -123,15 +119,14 @@ sub result : method {
             var NAMESPACE;
             @{[ $self->{_buffer} ]}
             return {
-                @{[ join ", ", map{"$_->{name}: $_->{name}"} @{$self->{_export}} ]}
+                @{[ join ", ", map{"$_: $_"} keys %{$self->{_export}} ]}
             };
         }();
     };
     $buf .= "}\n" x @{$self->{_with}};
     $buf .= "}.call(null) ) {\n";
-    foreach ( @{$self->{_export}} ) {
-        my ($ns, $name) = ($_->{namespace}, $_->{name});
-        $ns = $ns ? "$ns.$name" : $name;
+    while ( my ($name, $ns) = each %{$self->{_export}} ) {
+        $ns = $ns eq "GLOBAL" ? $name : "$ns.$name";
         $buf .= "    this.$ns = $name;\n";
     }
     $buf .= "}\n";     # End of with
@@ -196,7 +191,7 @@ sub text : method {
     my ESModPP $self = shift;
     my @args = @{shift()};
     $self->$croak('@use-namespace takes just one argument')  unless @args == 1;
-    my $ns = $self->$register_ns($args[0])                   unless $args[0] eq "GLOBAL";
+    my $ns = $args[0] eq "GLOBAL" ? "GLOBAL" : $self->$register_ns($args[0]);
     $self->{_target} = $ns;
     $self->write("NAMESPACE = '$ns';\n");
 };
@@ -207,7 +202,7 @@ sub text : method {
     $self->$croak('@with-namespace requires one or more arguments')  unless @args;
     foreach ( @args ) {
         if ( $_ eq "GLOBAL" ) {
-            push @{$self->{_with}}, '(function(){return this;}).call(null)';
+            push @{$self->{_with}}, 'this';
         } else {
             my $ns = $self->$register_ns($_);
             push @{$self->{_with}}, $ns;
@@ -232,13 +227,9 @@ sub text : method {
     my $target = $self->{_target};
     foreach ( @args ) {
         $self->$croak("Invalid identifier: `$_'")  unless is_identifier($_);
-        if ( $target eq "GLOBAL" ) {
-            push @{$self->{_global}}, $_;
-            push @{$self->{_export}}, {namespace=>'', name=>$_};
-        } else {
-            push @{$self->{_shared}}, "$target.$_";
-            push @{$self->{_export}}, {namespace=>$target, name=>$_};
-        }
+        $self->$croak("Redundantly exported symbol: `$_'")  if exists ${$self->{_export}}{$_};
+        push @{$self->{_shared}}, {namespace=>$target, name=>$_};
+        ${$self->{_export}}{$_} = $target;
     }
 };
 
@@ -248,11 +239,7 @@ sub text : method {
     my $target = $self->{_target};
     foreach ( @args ) {
         $self->$croak("Invalid identifier: `$_'")  unless is_identifier($_);
-        if ( $target eq "GLOBAL" ) {
-            push @{$self->{_global}}, $_;
-        } else {
-            push @{$self->{_shared}}, "$target.$_";
-        }
+        push @{$self->{_shared}}, {namespace=>$target, name=>$_};
     }
 };
 
