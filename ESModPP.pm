@@ -5,7 +5,7 @@ use strict;
 no strict 'refs';
 no warnings 'uninitialized';
 
-use ESModPP::Parser qw/:all/;
+use ESModPP::Parser;
 use Exporter;
 use Carp;
 use File::Spec::Functions qw/catfile file_name_is_absolute/;
