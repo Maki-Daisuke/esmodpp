@@ -1,0 +1,5 @@
+name = "ESModPP"
+# badges = ["travis"]
+authority="cpan:YANOTHER"
+
+module_maker="ModuleBuildTiny"

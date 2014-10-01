@@ -1,3 +1,5 @@
+#!/usr/bin/env perl
+
 use Carp;
 use XML::DOM;
 use Getopt::Compact;
@@ -75,7 +77,7 @@ sub esmodpp {
     my $mtime = (stat $js_path)[9];
     (my $esd = $js_path) =~ s/(?:\.[^.]*)?$/.esd/;
     (my $eso = $js_path) =~ s/(?:\.[^.]*)?$/.eso/;
-    unless ( -f $esd  &&  -f $eso  
+    unless ( -f $esd  &&  -f $eso
        and   $mtime < (stat $esd)[9]
        and   $mtime < (stat $eso)[9] )
     {
@@ -216,7 +218,7 @@ REWRITE: for (;;) {
         }
     }
     last REWRITE  unless $edge;
-    
+
     my ($require, $required) = split /$;/, $edge;
     $module_esd{"$required'"} = {dummy => 1};
     foreach ( keys %module_esd ) {
@@ -246,7 +248,7 @@ ORDER: while ( keys %module_esd ) {
         }
     }
     next ORDER  if $changed;
-    
+
     # If you are here, there's cyclic dependency caused by "weak" edge.
     # Delete an arbitrary "weak" edge, then, go ahead.
     for my $edge ( keys %depend ) {
@@ -272,4 +274,3 @@ for my $esd ( @order ) {
     close IN;
     report "completed.\n";
 }
-

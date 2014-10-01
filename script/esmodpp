@@ -1,3 +1,5 @@
+#!/usr/bin/env perl
+
 use utf8;
 use ESModPP;
 use XML::Generator;
@@ -27,7 +29,7 @@ sub branch {
     $p->handle($src);
     binmode $eso, ":raw";
     print $eso $p->eof;
-    
+
     my $gen = XML::Generator->new(":pretty");
     local (*require, *extend);
     *require = [];
@@ -75,4 +77,3 @@ foreach my $file ( map{ glob $_ } @ARGV ) {
         error "$1 at $file line $2";
     }
 }
-
