@@ -434,6 +434,17 @@ ESModPP は主に Concurrent.Thread をビルドするために作られた古�
 
 B<他の目的には決して利用しないでください。>
 
+=head1 INSTALLATION
+
+  git clone https://github.com/Maki-Daisuke/esmodpp.git
+  cd esmodpp
+  perl Build.PL
+  ./Build install
+
+or
+
+  cpanm git://github.com/Maki-Daisuke/esmodpp.git
+
 =head1 SPECIFICATION
 
 esmodpp仕様 ver. 0.9.2
