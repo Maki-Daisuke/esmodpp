@@ -1,5 +1,5 @@
 package ESModPP;
-our $VERSION = 0.10.1;
+our $VERSION = 0.10.2;
 
 use strict;
 no strict 'refs';
@@ -15,7 +15,7 @@ our @EXPORT_OK   = qw/is_identifier parse_namespace version_cmp/;
 our @EXPORT_TAGS = (all => \@EXPORT_OK);
 
 use fields qw{
-    _buffer
+    _text
     _esmodpp
     _version
     _target
@@ -30,7 +30,7 @@ use fields qw{
 sub new : method {
     my $class = shift;
     my ESModPP $self = $class->SUPER::new;
-    $self->{_buffer}    = "";
+    $self->{_text}      = "";
     $self->{_esmodpp}   = undef;     # true | false (undef means no @esmodpp directive has appeared.)
     $self->{_version}   = undef;     # /VERSION/ | undef (undef means no @version directive has appeared)
     $self->{_target}    = "GLOBAL";  # /NAMESPACE/
@@ -90,12 +90,12 @@ sub active : method {
 
 sub write : method {
     my ESModPP $self = shift;
-    $self->{_buffer} .= join "", @_;
+    $self->{_text} .= join "", @_;
 }
 
 sub result : method {
     my ESModPP $self = shift;
-    return $self->{_buffer}  unless defined $self->{_esmodpp};
+    return $self->{_text}  unless defined $self->{_esmodpp};
     my $buf = "(function(){\n";  # Top-level closure, which ensures that this-value refers the Global Object.
     foreach ( values %{$self->{_namespace}} ) {
         my @names = @$_;
@@ -117,7 +117,7 @@ sub result : method {
         return function () {
             var VERSION @{[ defined $self->{_version} ? "= '$self->{_version}'" : "" ]};
             var NAMESPACE;
-            @{[ $self->{_buffer} ]}
+            @{[ $self->{_text} ]}
             return {
                 @{[ join ", ", map{"$_: $_"} keys %{$self->{_export}} ]}
             };
